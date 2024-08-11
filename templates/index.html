@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Share Website</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/2.3.0/alpine.js" defer></script>
+</head>
+<body class="bg-gray-100 min-h-screen" x-data="fileUpload()">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8 text-center text-blue-600">File Share Website</h1>
+        
+        <div class="bg-white shadow-md rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Upload File or Folder</h2>
+            <form @submit.prevent="uploadFile" class="space-y-4">
+                <div>
+                    <label for="file" class="block text-sm font-medium text-gray-700">Choose a file or folder</label>
+                    <input type="file" id="file" name="file" @change="fileChanged" class="mt-1 block w-full" multiple>
+                </div>
+                <div x-show="isFolder">
+                    <label for="folder_name" class="block text-sm font-medium text-gray-700">Folder Name</label>
+                    <input type="text" id="folder_name" name="folder_name" x-model="folderName" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
+                </div>
+                <div x-show="selectedFiles.length > 0" class="mt-4">
+                    <h3 class="text-lg font-semibold mb-2">Selected Files:</h3>
+                    <ul class="list-disc pl-5">
+                        <template x-for="file in selectedFiles" :key="file.name">
+                            <li x-text="file.name"></li>
+                        </template>
+                    </ul>
+                </div>
+                <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Upload
+                </button>
+            </form>
+            
+            <div x-show="uploading" class="mt-4">
+                <div class="relative pt-1">
+                    <div class="flex mb-2 items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-blue-600 bg-blue-200">
+                                Progress
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-semibold inline-block text-blue-600" x-text="`${progress}%`"></span>
+                        </div>
+                    </div>
+                    <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-blue-200">
+                        <div :style="`width: ${progress}%`" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500 transition-all duration-300 ease-in-out"></div>
+                    </div>
+                </div>
+                <div class="mt-4 text-sm text-gray-700">
+                    <div>Speed: <span x-text="`${speed.toFixed(2)} MB/s`"></span></div>
+                    <div>Size left: <span x-text="`${(sizeLeft / 1024 / 1024).toFixed(2)} MB`"></span></div>
+                    <div>Estimated time left: <span x-text="`${estimatedTimeLeft.toFixed(2)} s`"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-md rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Uploaded Files and Folders</h2>
+            <ul class="space-y-2">
+                {% for file in files %}
+                <li class="flex items-center justify-between">
+                    <span class="text-gray-700">{{ file }}</span>
+                    <a href="{{ url_for('download_file', filename=file) }}" class="text-blue-500 hover:text-blue-600">Download</a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function fileUpload() {
+            return {
+                uploading: false,
+                progress: 0,
+                isFolder: false,
+                folderName: '',
+                selectedFiles: [],
+                startTime: null,
+                totalSize: 0,
+                sizeUploaded: 0,
+                speed: 0,
+                sizeLeft: 0,
+                estimatedTimeLeft: 0,
+
+                fileChanged(event) {
+                    this.selectedFiles = Array.from(event.target.files);
+                    this.isFolder = this.selectedFiles.some(file => file.webkitRelativePath);
+                    this.totalSize = this.selectedFiles.reduce((acc, file) => acc + file.size, 0);
+                },
+
+                uploadFile() {
+                    this.uploading = true;
+                    this.progress = 0;
+                    this.sizeUploaded = 0;
+                    this.sizeLeft = this.totalSize;
+                    this.startTime = new Date();
+
+                    const formData = new FormData();
+
+                    if (this.isFolder) {
+                        this.selectedFiles.forEach(file => {
+                            formData.append('folder', file, file.webkitRelativePath);
+                        });
+                        formData.append('folder_name', this.folderName || 'uploaded_folder');
+                    } else {
+                        this.selectedFiles.forEach(file => {
+                            formData.append('file', file);
+                        });
+                    }
+
+                    const xhr = new XMLHttpRequest();
+
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            this.sizeUploaded = e.loaded;
+                            this.sizeLeft = this.totalSize - e.loaded;
+                            this.progress = Math.round((e.loaded * 100) / e.total);
+                            const elapsedTime = (new Date() - this.startTime) / 1000;
+                            this.speed = e.loaded / elapsedTime / 1024 / 1024;
+                            this.estimatedTimeLeft = this.sizeLeft / (this.speed * 1024 * 1024);
+                        }
+                    });
+
+                    xhr.onload = () => {
+                        if (xhr.status === 200) {
+                            alert('Upload successful!');
+                            location.reload();
+                        } else {
+                            alert('Upload failed. Please try again.');
+                        }
+                        this.uploading = false;
+                    };
+
+                    xhr.onerror = () => {
+                        alert('Upload failed. Please try again.');
+                        this.uploading = false;
+                    };
+
+                    if (this.isFolder) {
+                        xhr.open('POST', '/upload_folder');
+                    } else {
+                        xhr.open('POST', '/upload');
+                    }
+                    xhr.send(formData);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
